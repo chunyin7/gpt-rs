@@ -60,18 +60,21 @@ impl BpeTokenizer {
         }
 
         // load special tokens
-        for (i, special_token) in self.config.special_tokens.iter().enumerate() {
-            let id: u32 = 255 + i as u32;
+        for special_token in self.config.special_tokens.iter() {
+            let id: u32 = self.i2t.len() as u32;
             self.special_tokens.insert(*special_token, id);
-            self.i2t.push(Box::new([])); // leave special tokens to have empty bytes for now
-            self.t2i.insert(special_token.repr().into_boxed_slice(), id);
+
+            let repr = special_token.repr();
+            self.i2t.push(repr.clone().into_boxed_slice()); // leave special tokens to have empty bytes for now
+            self.t2i.insert(repr.into_boxed_slice(), id);
         }
 
         // divide data input into 2d token id array
         let mut words: Vec<Vec<u32>> = Vec::new();
         let mut cur: Vec<u32> = Vec::new();
         for c in data.iter() {
-            if (*c as char).is_alphanumeric() {
+            if c.is_ascii_alphanumeric() {
+                // TODO: add proper unicode support via a regex pretokenizer
                 cur.push(*c as u32);
             } else {
                 if cur.len() > 0 {
@@ -106,7 +109,7 @@ impl BpeTokenizer {
         }
 
         // now perform recursive merging
-        for i in self.i2t.len()..self.config.vocab_size {
+        while self.i2t.len() < self.config.vocab_size {
             let mut pair_counts: HashMap<(u32, u32), u32> = HashMap::new(); // token byte array to count
 
             for word in words.iter() {
@@ -118,7 +121,7 @@ impl BpeTokenizer {
 
             let (&best_pair, _) = match pair_counts.iter().max_by_key(|(_, count)| *count) {
                 Some(pair) => pair,
-                None => break,
+                None => return,
             };
             let new_token_id = self.i2t.len() as u32;
             let merged_bytes = [
@@ -126,15 +129,23 @@ impl BpeTokenizer {
                 self.i2t[best_pair.1 as usize].as_ref(),
             ]
             .concat();
+
+            if self.t2i.contains_key(merged_bytes.as_slice()) {
+                continue;
+            }
+
             self.i2t.push(merged_bytes.clone().into_boxed_slice());
             self.t2i
                 .insert(merged_bytes.into_boxed_slice(), new_token_id);
 
             for word in words.iter_mut() {
-                for j in 1..word.len() {
+                let mut j = 1;
+                while j < word.len() {
                     if word[j - 1] == best_pair.0 && word[j] == best_pair.1 {
                         word[j - 1] = new_token_id;
                         word.remove(j);
+                    } else {
+                        j += 1;
                     }
                 }
             }
