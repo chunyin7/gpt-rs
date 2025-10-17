@@ -92,5 +92,35 @@ impl BpeTokenizer {
         }
 
         // now perform recursive merging
+        for i in self.i2t.len()..self.config.vocab_size {
+            let mut pair_counts: HashMap<(u32, u32), u32> = HashMap::new(); // token byte array to count
+
+            for word in words.iter() {
+                for window in word.windows(2) {
+                    let pair = (window[0], window[1]);
+                    *pair_counts.entry(pair).or_insert(0) += 1;
+                }
+            }
+
+            let (&best_pair, _) = pair_counts.iter().max_by_key(|(_, &count)| count).unwrap();
+            let new_token_id = self.i2t.len() as u32;
+            let merged_bytes = [
+                self.vocab[best_pair.0 as usize][..],
+                self.vocab[best_pair.1 as usize][..],
+            ]
+            .concat();
+            self.i2t.push(merged_bytes.clone().into_boxed_slice());
+            self.t2i
+                .insert(merged_bytes.into_boxed_slice(), new_token_id);
+
+            for word in words.iter_mut() {
+                for j in 1..word.len() {
+                    if word[j - 1] == best_pair.0 && word[j] == best_pair.1 {
+                        word[j - 1] = new_token_id;
+                        word.remove(j);
+                    }
+                }
+            }
+        }
     }
 }
