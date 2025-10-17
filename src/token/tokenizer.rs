@@ -1,7 +1,20 @@
+use std::collections::HashMap;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum SpecialToken {
     Eos,
     Unk,
     Eow,
+}
+
+impl SpecialToken {
+    pub fn repr(&self) -> Vec<u8> {
+        match self {
+            SpecialToken::Eos => b"<|eos|>".to_vec(),
+            SpecialToken::Unk => b"<|unk|>".to_vec(),
+            SpecialToken::Eow => b"<|eow|>".to_vec(),
+        }
+    }
 }
 
 pub struct BpeConfig {
@@ -27,8 +40,8 @@ pub struct BpeTokenizer {
 
 impl BpeTokenizer {
     fn new(config: BpeConfig) -> Result<Self, String> {
-        if config.voc_size < 256 {
-            Err("Please use a vocabulary size of at least 256".to_string())
+        if config.vocab_size < 256 {
+            return Err("Please use a vocabulary size of at least 256".to_string());
         }
 
         Ok(Self {
@@ -48,30 +61,31 @@ impl BpeTokenizer {
 
         // load special tokens
         for (i, special_token) in self.config.special_tokens.iter().enumerate() {
-            let id: u32 = 255 + i;
+            let id: u32 = 255 + i as u32;
             self.special_tokens.insert(*special_token, id);
-            self.i2t.push(Box::new([id as u8]));
+            self.i2t.push(Box::new([])); // leave special tokens to have empty bytes for now
+            self.t2i.insert(special_token.repr().into_boxed_slice(), id);
         }
 
         // divide data input into 2d token id array
         let mut words: Vec<Vec<u32>> = Vec::new();
         let mut cur: Vec<u32> = Vec::new();
         for c in data.iter() {
-            if (c as char).is_alphanumeric() {
-                cur.push(c as u32);
+            if (*c as char).is_alphanumeric() {
+                cur.push(*c as u32);
             } else {
                 if cur.len() > 0 {
-                    if self.special_tokens.contains_key(SpecialToken::Eow) {
-                        cur.push(self.special_tokens.get(SpecialToken::Eow));
+                    if let Some(&eow_id) = self.special_tokens.get(&SpecialToken::Eow) {
+                        cur.push(eow_id);
                     }
                     words.push(cur);
                     cur = Vec::new();
                 }
 
                 // then add the non alpha character as its own word
-                cur.push(c as u32);
-                if self.special_tokens.contains_key(SpecialToken::Eow) {
-                    cur.push(self.special_tokens.get(SpecialToken::Eow));
+                cur.push(*c as u32);
+                if let Some(&eow_id) = self.special_tokens.get(&SpecialToken::Eow) {
+                    cur.push(eow_id);
                 }
                 words.push(cur);
                 cur = Vec::new();
@@ -80,15 +94,15 @@ impl BpeTokenizer {
 
         // clean up and add last word
         if cur.len() > 0 {
-            if self.special_tokens.contains_key(SpecialToken::Eow) {
-                cur.push(self.special_tokens.get(SpecialToken::Eow));
+            if let Some(&eow_id) = self.special_tokens.get(&SpecialToken::Eow) {
+                cur.push(eow_id);
             }
             words.push(cur);
         }
 
         // add eos
-        if self.special_tokens.contains_key(SpecialToken::Eos) {
-            words.push(vec![self.special_tokens.get(SpecialToken::Eos)]);
+        if let Some(&eos_id) = self.special_tokens.get(&SpecialToken::Eos) {
+            words.push(vec![eos_id]);
         }
 
         // now perform recursive merging
@@ -102,11 +116,14 @@ impl BpeTokenizer {
                 }
             }
 
-            let (&best_pair, _) = pair_counts.iter().max_by_key(|(_, &count)| count).unwrap();
+            let (&best_pair, _) = match pair_counts.iter().max_by_key(|(_, count)| *count) {
+                Some(pair) => pair,
+                None => break,
+            };
             let new_token_id = self.i2t.len() as u32;
             let merged_bytes = [
-                self.vocab[best_pair.0 as usize][..],
-                self.vocab[best_pair.1 as usize][..],
+                self.i2t[best_pair.0 as usize].as_ref(),
+                self.i2t[best_pair.1 as usize].as_ref(),
             ]
             .concat();
             self.i2t.push(merged_bytes.clone().into_boxed_slice());
