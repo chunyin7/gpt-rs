@@ -39,7 +39,7 @@ pub struct BpeTokenizer {
 }
 
 impl BpeTokenizer {
-    fn new(config: BpeConfig) -> Result<Self, String> {
+    pub fn new(config: BpeConfig) -> Result<Self, String> {
         if config.vocab_size < 256 {
             return Err("Please use a vocabulary size of at least 256".to_string());
         }
@@ -52,7 +52,74 @@ impl BpeTokenizer {
         })
     }
 
-    fn build(&mut self, data: &[u8]) {
+    pub fn tokenize(&self, data: &[u8]) -> Vec<u32> {
+        let mut tokens: Vec<u32> = Vec::new();
+
+        let mut words: Vec<Vec<u32>> = Vec::new();
+        let mut cur: Vec<u32> = Vec::new();
+        for c in data.iter() {
+            if c.is_ascii_alphanumeric() {
+                cur.push(*c as u32);
+            } else {
+                if cur.len() > 0 {
+                    if let Some(&eow_id) = self.special_tokens.get(&SpecialToken::Eow) {
+                        cur.push(eow_id);
+                    }
+                    words.push(cur);
+                    cur = Vec::new();
+                }
+
+                cur.push(*c as u32);
+                if let Some(&eow_id) = self.special_tokens.get(&SpecialToken::Eow) {
+                    cur.push(eow_id);
+                }
+                words.push(cur);
+                cur = Vec::new();
+            }
+        }
+
+        // clean up and add last word
+        if cur.len() > 0 {
+            if let Some(&eow_id) = self.special_tokens.get(&SpecialToken::Eow) {
+                cur.push(eow_id);
+            }
+            words.push(cur);
+        }
+
+        // add eos
+        if let Some(&eos_id) = self.special_tokens.get(&SpecialToken::Eos) {
+            words.push(vec![eos_id]);
+        }
+
+        for word in words.iter_mut() {
+            let mut j = 1;
+            while j < word.len() {
+                let merged_bytes = [
+                    self.i2t[word[j - 1] as usize].as_ref(),
+                    self.i2t[word[j] as usize].as_ref(),
+                ]
+                .concat();
+
+                if let Some(&pair_id) = self.t2i.get(merged_bytes.as_slice()) {
+                    word[j - 1] = pair_id;
+                    word.remove(j);
+                } else {
+                    j += 1;
+                }
+            }
+        }
+
+        // flatten 2d id array into tokens
+        for word in words.iter() {
+            for token in word.iter() {
+                tokens.push(*token);
+            }
+        }
+
+        tokens
+    }
+
+    pub fn build(&mut self, data: &[u8]) {
         // first load all 256 bytes
         for i in 0..256 {
             self.i2t.push(Box::new([i as u8]));
