@@ -49,6 +49,48 @@ impl BpeTokenizer {
         // load special tokens
         for (i, special_token) in self.config.special_tokens.iter().enumerate() {
             let id: u32 = 255 + i;
+            self.special_tokens.insert(*special_token, id);
+            self.i2t.push(Box::new([id as u8]));
         }
+
+        // divide data input into 2d token id array
+        let mut words: Vec<Vec<u32>> = Vec::new();
+        let mut cur: Vec<u32> = Vec::new();
+        for c in data.iter() {
+            if (c as char).is_alphanumeric() {
+                cur.push(c as u32);
+            } else {
+                if cur.len() > 0 {
+                    if self.special_tokens.contains_key(SpecialToken::Eow) {
+                        cur.push(self.special_tokens.get(SpecialToken::Eow));
+                    }
+                    words.push(cur);
+                    cur = Vec::new();
+                }
+
+                // then add the non alpha character as its own word
+                cur.push(c as u32);
+                if self.special_tokens.contains_key(SpecialToken::Eow) {
+                    cur.push(self.special_tokens.get(SpecialToken::Eow));
+                }
+                words.push(cur);
+                cur = Vec::new();
+            }
+        }
+
+        // clean up and add last word
+        if cur.len() > 0 {
+            if self.special_tokens.contains_key(SpecialToken::Eow) {
+                cur.push(self.special_tokens.get(SpecialToken::Eow));
+            }
+            words.push(cur);
+        }
+
+        // add eos
+        if self.special_tokens.contains_key(SpecialToken::Eos) {
+            words.push(vec![self.special_tokens.get(SpecialToken::Eos)]);
+        }
+
+        // now perform recursive merging
     }
 }
