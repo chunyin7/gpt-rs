@@ -58,7 +58,25 @@ impl BpeTokenizer {
         })
     }
 
-    pub fn tokenize(&self, data: &[u8]) -> Result<Vec<u32>, String> {
+    pub fn decode(&self, tokens: &[u32]) -> Result<Vec<u8>, String> {
+        if !self.built {
+            return Err("Tokenizer not built yet".to_string());
+        }
+
+        let mut bytes: Vec<u8> = Vec::new();
+
+        for token in tokens.iter() {
+            if let Some(token_bytes) = self.i2t.get(*token as usize) {
+                bytes.extend(token_bytes.iter());
+            } else {
+                return Err("Token not found".to_string());
+            }
+        }
+
+        Ok(bytes)
+    }
+
+    pub fn encode(&self, data: &[u8]) -> Result<Vec<u32>, String> {
         if !self.built {
             return Err("Tokenizer not built yet".to_string());
         }
