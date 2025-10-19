@@ -36,6 +36,9 @@ pub struct BpeTokenizer {
     t2i: HashMap<Box<[u8]>, u32>, // raw token byte array to id
     config: BpeConfig,
     special_tokens: HashMap<SpecialToken, u32>, // map special token to id
+    built: bool,
+    merge_rank: HashMap<(u32, u32), usize>, // stores the rank of the best pair at which we choose to merge two tokens
+    pair_to_token: HashMap<(u32, u32), u32>, // stores the resulting merged token for a given pair
 }
 
 impl BpeTokenizer {
@@ -49,10 +52,17 @@ impl BpeTokenizer {
             t2i: HashMap::new(),
             config,
             special_tokens: HashMap::new(),
+            built: false,
+            merge_rank: HashMap::new(),
+            pair_to_token: HashMap::new(),
         })
     }
 
-    pub fn tokenize(&self, data: &[u8]) -> Vec<u32> {
+    pub fn tokenize(&self, data: &[u8]) -> Result<Vec<u32>, String> {
+        if !self.built {
+            return Err("Tokenizer not built yet".to_string());
+        }
+
         let mut tokens: Vec<u32> = Vec::new();
 
         let mut words: Vec<Vec<u32>> = Vec::new();
@@ -92,19 +102,38 @@ impl BpeTokenizer {
         }
 
         for word in words.iter_mut() {
-            let mut j = 1;
-            while j < word.len() {
-                let merged_bytes = [
-                    self.i2t[word[j - 1] as usize].as_ref(),
-                    self.i2t[word[j] as usize].as_ref(),
-                ]
-                .concat();
+            let mut pair_found = true;
+            while pair_found {
+                pair_found = false;
+                let mut min_rank = self.merge_rank.len();
+                let mut min_pair: (u32, u32) = (0, 0);
 
-                if let Some(&pair_id) = self.t2i.get(merged_bytes.as_slice()) {
-                    word[j - 1] = pair_id;
-                    word.remove(j);
-                } else {
-                    j += 1;
+                for window in word.windows(2) {
+                    let pair = (window[0], window[1]);
+                    let rank = match self.merge_rank.get(&pair) {
+                        Some(rank) => *rank,
+                        None => continue,
+                    };
+
+                    if rank < min_rank {
+                        min_rank = rank;
+                        min_pair = pair;
+                        pair_found = true;
+                    }
+                }
+
+                if pair_found {
+                    let mut j = 1;
+                    while j < word.len() {
+                        if word[j - 1] == min_pair.0 && word[j] == min_pair.1 {
+                            if let Some(&new_id) = self.pair_to_token.get(&min_pair) {
+                                word[j - 1] = new_id;
+                                word.remove(j);
+                            }
+                        } else {
+                            j += 1;
+                        }
+                    }
                 }
             }
         }
@@ -116,10 +145,17 @@ impl BpeTokenizer {
             }
         }
 
-        tokens
+        Ok(tokens)
     }
 
     pub fn build(&mut self, data: &[u8]) {
+        // reset prior vocab data
+        self.i2t.clear();
+        self.t2i.clear();
+        self.merge_rank.clear();
+        self.pair_to_token.clear();
+        self.special_tokens.clear();
+
         // first load all 256 bytes
         for i in 0..256 {
             self.i2t.push(Box::new([i as u8]));
@@ -188,22 +224,28 @@ impl BpeTokenizer {
 
             let (&best_pair, _) = match pair_counts.iter().max_by_key(|(_, count)| *count) {
                 Some(pair) => pair,
-                None => return,
+                None => {
+                    self.built = true;
+                    return;
+                }
             };
-            let new_token_id = self.i2t.len() as u32;
+            let mut new_token_id = self.i2t.len() as u32;
             let merged_bytes = [
                 self.i2t[best_pair.0 as usize].as_ref(),
                 self.i2t[best_pair.1 as usize].as_ref(),
             ]
             .concat();
 
-            if self.t2i.contains_key(merged_bytes.as_slice()) {
-                continue;
+            if let Some(&merged_id) = self.t2i.get(merged_bytes.as_slice()) {
+                new_token_id = merged_id; // replace pairs with the existing token as we've already merged this pair
+            } else {
+                self.i2t.push(merged_bytes.clone().into_boxed_slice());
+                self.t2i
+                    .insert(merged_bytes.into_boxed_slice(), new_token_id);
             }
 
-            self.i2t.push(merged_bytes.clone().into_boxed_slice());
-            self.t2i
-                .insert(merged_bytes.into_boxed_slice(), new_token_id);
+            self.merge_rank.insert(best_pair, self.merge_rank.len());
+            self.pair_to_token.insert(best_pair, new_token_id);
 
             for word in words.iter_mut() {
                 let mut j = 1;
@@ -217,5 +259,7 @@ impl BpeTokenizer {
                 }
             }
         }
+
+        self.built = true;
     }
 }
