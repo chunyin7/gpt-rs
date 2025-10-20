@@ -1,4 +1,8 @@
-use std::collections::HashMap;
+use std::{
+    collections::HashMap,
+    fs::File,
+    io::{BufWriter, Write},
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum SpecialToken {
@@ -23,7 +27,7 @@ pub struct BpeConfig {
 }
 
 impl BpeConfig {
-    fn default() -> Self {
+    pub fn default() -> Self {
         Self {
             vocab_size: 50257,
             special_tokens: vec![SpecialToken::Eos],
@@ -56,6 +60,94 @@ impl BpeTokenizer {
             merge_rank: HashMap::new(),
             pair_to_token: HashMap::new(),
         })
+    }
+
+    pub fn save(&self, path: &str) -> Result<(), String> {
+        if !self.built {
+            return Err("Tokenizer not built yet".to_string());
+        }
+
+        let file = File::create(path).map_err(|e| e.to_string())?;
+        let mut writer = BufWriter::new(&file);
+
+        writer
+            .write_all(&(self.config.vocab_size as u32).to_le_bytes())
+            .map_err(|e| e.to_string())?;
+        writer
+            .write_all(&(self.config.special_tokens.len() as u32).to_le_bytes())
+            .map_err(|e| e.to_string())?;
+        for token in self.config.special_tokens.iter() {
+            writer
+                .write_all(&[*token as u8]) // saves the special tokens as a numeric tag
+                .map_err(|e| e.to_string())?;
+        }
+
+        writer
+            .write_all(&(self.i2t.len() as u32).to_le_bytes())
+            .map_err(|e| e.to_string())?;
+        for token_bytes in self.i2t.iter() {
+            writer
+                .write_all(&(token_bytes.len() as u32).to_le_bytes())
+                .map_err(|e| e.to_string())?;
+            writer.write_all(token_bytes).map_err(|e| e.to_string())?;
+        }
+
+        let mut specials: Vec<(SpecialToken, u32)> =
+            self.special_tokens.iter().map(|(k, v)| (*k, *v)).collect();
+        specials.sort_by_key(|(token, _)| *token as u8);
+        writer
+            .write_all(&(specials.len() as u32).to_le_bytes())
+            .map_err(|e| e.to_string())?;
+        for (token, id) in specials.iter() {
+            writer
+                .write_all(&[*token as u8])
+                .map_err(|e| e.to_string())?;
+            writer
+                .write_all(&(id).to_le_bytes())
+                .map_err(|e| e.to_string())?;
+        }
+
+        let mut merge_rank: Vec<((u32, u32), usize)> =
+            self.merge_rank.iter().map(|(k, v)| (*k, *v)).collect();
+        merge_rank.sort_by_key(|(_, rank)| *rank);
+        writer
+            .write_all(&(merge_rank.len() as u32).to_le_bytes())
+            .map_err(|e| e.to_string())?;
+        for (pair, rank) in merge_rank.iter() {
+            let (a_id, b_id) = pair;
+            writer
+                .write_all(&(a_id).to_le_bytes())
+                .map_err(|e| e.to_string())?;
+            writer
+                .write_all(&(b_id).to_le_bytes())
+                .map_err(|e| e.to_string())?;
+            writer
+                .write_all(&(*rank as u32).to_le_bytes())
+                .map_err(|e| e.to_string())?;
+        }
+
+        let mut pair_to_token: Vec<((u32, u32), u32)> =
+            self.pair_to_token.iter().map(|(k, v)| (*k, *v)).collect();
+        pair_to_token.sort_by_key(|(_, token)| *token);
+        writer
+            .write_all(&(pair_to_token.len() as u32).to_le_bytes())
+            .map_err(|e| e.to_string())?;
+        for (pair, token) in pair_to_token.iter() {
+            let (a_id, b_id) = pair;
+            writer
+                .write_all(&(a_id).to_le_bytes())
+                .map_err(|e| e.to_string())?;
+            writer
+                .write_all(&(b_id).to_le_bytes())
+                .map_err(|e| e.to_string())?;
+            writer
+                .write_all(&(*token).to_le_bytes())
+                .map_err(|e| e.to_string())?;
+        }
+
+        writer.flush().map_err(|e| e.to_string())?;
+
+        Ok(())
     }
 
     pub fn decode(&self, tokens: &[u32]) -> Result<Vec<u8>, String> {
