@@ -98,4 +98,51 @@ impl Matrix {
         }
         Ok(new)
     }
+
+    pub fn add_in_place(&mut self, other: &Self) -> Result<(), String> {
+        if self.rows != other.rows || self.cols != other.cols {
+            return Err("Matrix dimensions do not match".to_string());
+        }
+
+        for i in 0..self.rows {
+            for j in 0..self.cols {
+                let idx = self.idx(i, j);
+                let sum = self.data[idx] + other.data[idx];
+                self.data[idx] = sum;
+            }
+        }
+        Ok(())
+    }
+
+    pub fn scale(&mut self, scalar: f32) {
+        for i in 0..self.data.len() {
+            self.data[i] *= scalar;
+        }
+    }
+
+    pub fn row(&self, row: usize) -> Result<&[f32], String> {
+        if row > self.rows {
+            return Err("Index out of bounds".to_string());
+        }
+
+        let start = self.idx(row, 0);
+        let end = self.idx(row, self.cols);
+        Ok(&self.data[start..end])
+    }
+
+    pub fn row_mut(&mut self, row: usize) -> Result<&mut [f32], String> {
+        if row > self.rows {
+            return Err("Index out of bounds".to_string());
+        }
+
+        let start = self.idx(row, 0);
+        let end = self.idx(row, self.cols);
+        Ok(&mut self.data[start..end])
+    }
+
+    pub fn fill(&mut self, value: f32) {
+        for i in 0..self.data.len() {
+            self.data[i] = value;
+        }
+    }
 }
