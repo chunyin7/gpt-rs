@@ -328,10 +328,10 @@ impl BpeTokenizer {
         self.special_tokens.clear();
 
         // first load all 256 bytes
-        for i in 0..256 {
+        (0..256).for_each(|i| {
             self.i2t.push(Box::new([i as u8]));
             self.t2i.insert(Box::new([i as u8]), i as u32);
-        }
+        });
 
         // load special tokens
         for special_token in self.config.special_tokens.iter() {
@@ -384,14 +384,13 @@ impl BpeTokenizer {
 
         // now perform recursive merging
         while self.i2t.len() < self.config.vocab_size {
-            let mut pair_counts: HashMap<(u32, u32), u32> = HashMap::new(); // token byte array to count
-
-            for word in words.iter() {
-                for window in word.windows(2) {
-                    let pair = (window[0], window[1]);
-                    *pair_counts.entry(pair).or_insert(0) += 1;
-                }
-            }
+            let pair_counts = words.iter().flat_map(|word| word.windows(2)).fold(
+                HashMap::new(),
+                |mut counts, window| {
+                    *counts.entry((window[0], window[1])).or_insert(0) += 1;
+                    counts
+                },
+            );
 
             let (&best_pair, _) = match pair_counts.iter().max_by_key(|(_, count)| *count) {
                 Some(pair) => pair,
