@@ -24,8 +24,7 @@ impl Matrix {
             return Err("Index out of bounds".to_string());
         }
 
-        let idx = self.idx(row, col);
-        Ok(self.data[idx])
+        Ok(*self.data.get(self.idx(row, col)).unwrap())
     }
 
     pub fn set(&mut self, row: usize, col: usize, value: f32) -> Result<(), String> {
@@ -40,9 +39,9 @@ impl Matrix {
 
     pub fn randomize(&mut self) {
         let mut rng = rand::rng();
-        for i in 0..self.data.len() {
-            self.data[i] = rng.random_range(0.0..1.0);
-        }
+        self.data
+            .iter_mut()
+            .for_each(|x| *x = rng.random_range(0.0..1.0));
     }
 
     pub fn transpose(&self) -> Self {
@@ -89,13 +88,11 @@ impl Matrix {
         }
 
         let mut new = Matrix::new(a.rows, a.cols);
-        for i in 0..a.rows {
-            for j in 0..a.cols {
-                let idx = a.idx(i, j);
-                let sum = a.data[idx] + b.data[idx];
-                new.data[idx] = sum;
-            }
-        }
+        a.data
+            .iter()
+            .zip(&b.data)
+            .enumerate()
+            .for_each(|(i, (x, y))| new.data[i] = x + y);
         Ok(new)
     }
 
@@ -104,30 +101,23 @@ impl Matrix {
             return Err("Matrix dimensions do not match".to_string());
         }
 
-        for i in 0..self.rows {
-            for j in 0..self.cols {
-                let idx = self.idx(i, j);
-                let sum = self.data[idx] + other.data[idx];
-                self.data[idx] = sum;
-            }
-        }
+        self.data
+            .iter_mut()
+            .zip(&other.data)
+            .for_each(|(x, y)| *x += y);
         Ok(())
     }
 
     pub fn scale(&mut self, scalar: f32) {
-        for i in 0..self.data.len() {
-            self.data[i] *= scalar;
-        }
+        self.data.iter_mut().for_each(|x| *x = *x * scalar);
     }
 
     pub fn row(&self, row: usize) -> Result<&[f32], String> {
-        if row > self.rows {
+        if row >= self.rows {
             return Err("Index out of bounds".to_string());
         }
 
-        let start = self.idx(row, 0);
-        let end = self.idx(row, self.cols);
-        Ok(&self.data[start..end])
+        Ok(self.data.chunks_exact(self.cols).nth(row).unwrap())
     }
 
     pub fn row_mut(&mut self, row: usize) -> Result<&mut [f32], String> {
@@ -135,14 +125,10 @@ impl Matrix {
             return Err("Index out of bounds".to_string());
         }
 
-        let start = self.idx(row, 0);
-        let end = self.idx(row, self.cols);
-        Ok(&mut self.data[start..end])
+        Ok(self.data.chunks_exact_mut(self.cols).nth(row).unwrap())
     }
 
     pub fn fill(&mut self, value: f32) {
-        for i in 0..self.data.len() {
-            self.data[i] = value;
-        }
+        self.data.iter_mut().for_each(|x| *x = value);
     }
 }
