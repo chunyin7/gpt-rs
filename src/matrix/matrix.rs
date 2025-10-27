@@ -1,9 +1,67 @@
 use rand::Rng;
 
+pub trait MatrixLike {
+    fn rows(&self) -> usize;
+    fn cols(&self) -> usize;
+    fn idx(&self, row: usize, col: usize) -> usize;
+    fn data(&self) -> &[f32];
+}
+
+pub struct MatrixView<'a> {
+    data: &'a [f32],
+    rows: usize,
+    cols: usize,
+    stride: usize,
+    offset: usize,
+}
+
+#[derive(Clone)]
 pub struct Matrix {
     data: Vec<f32>,
     rows: usize,
     cols: usize,
+}
+
+impl<'a> MatrixView<'a> {
+    pub fn new(data: &'a [f32], rows: usize, cols: usize, stride: usize, offset: usize) -> Self {
+        Self {
+            data,
+            rows,
+            cols,
+            stride,
+            offset,
+        }
+    }
+}
+
+impl MatrixLike for Matrix {
+    fn rows(&self) -> usize {
+        self.rows
+    }
+    fn cols(&self) -> usize {
+        self.cols
+    }
+    fn idx(&self, row: usize, col: usize) -> usize {
+        self.idx(row, col)
+    }
+    fn data(&self) -> &[f32] {
+        self.data.as_slice()
+    }
+}
+
+impl<'a> MatrixLike for MatrixView<'a> {
+    fn rows(&self) -> usize {
+        self.rows
+    }
+    fn cols(&self) -> usize {
+        self.cols
+    }
+    fn idx(&self, row: usize, col: usize) -> usize {
+        self.offset + row * self.stride + col
+    }
+    fn data(&self) -> &[f32] {
+        self.data
+    }
 }
 
 impl Matrix {
@@ -58,20 +116,22 @@ impl Matrix {
         new
     }
 
-    pub fn multiply(a: &Self, b: &Self) -> Result<Self, String> {
-        if a.cols != b.rows {
+    pub fn multiply<A: MatrixLike, B: MatrixLike>(a: &A, b: &B) -> Result<Self, String> {
+        if a.cols() != b.rows() {
             return Err("Matrix dimensions do not match".to_string());
         }
 
-        let mut new = Matrix::new(a.rows, b.cols);
-        for i in 0..a.rows {
-            for j in 0..b.cols {
+        let mut new = Matrix::new(a.rows(), b.cols());
+        let a_data = a.data();
+        let b_data = b.data();
+        for i in 0..a.rows() {
+            for j in 0..b.cols() {
                 let mut sum: f32 = 0.0;
 
-                for k in 0..a.cols {
+                for k in 0..a.cols() {
                     let a_idx = a.idx(i, k);
                     let b_idx = b.idx(k, j);
-                    sum += a.data[a_idx] * b.data[b_idx];
+                    sum += a_data[a_idx] * b_data[b_idx];
                 }
 
                 let new_idx = new.idx(i, j);
@@ -82,15 +142,15 @@ impl Matrix {
         Ok(new)
     }
 
-    pub fn add(a: &Self, b: &Self) -> Result<Self, String> {
-        if a.rows != b.rows || a.cols != b.cols {
+    pub fn add<A: MatrixLike, B: MatrixLike>(a: &A, b: &B) -> Result<Self, String> {
+        if a.rows() != b.rows() || a.cols() != b.cols() {
             return Err("Matrix dimensions do not match".to_string());
         }
 
-        let mut new = Matrix::new(a.rows, a.cols);
-        a.data
+        let mut new = Matrix::new(a.rows(), a.cols());
+        a.data()
             .iter()
-            .zip(&b.data)
+            .zip(b.data())
             .enumerate()
             .for_each(|(i, (x, y))| new.data[i] = x + y);
         Ok(new)
@@ -121,7 +181,7 @@ impl Matrix {
     }
 
     pub fn row_mut(&mut self, row: usize) -> Result<&mut [f32], String> {
-        if row > self.rows {
+        if row >= self.rows {
             return Err("Index out of bounds".to_string());
         }
 
@@ -130,5 +190,13 @@ impl Matrix {
 
     pub fn fill(&mut self, value: f32) {
         self.data.iter_mut().for_each(|x| *x = value);
+    }
+
+    pub fn slice_columns(&self, start: usize, len: usize) -> Result<MatrixView<'_>, String> {
+        if start + len > self.cols {
+            return Err("slice_columns: range out of bounds.".to_string());
+        }
+        let view = MatrixView::new(&self.data, self.rows, len, self.cols, start);
+        Ok(view)
     }
 }

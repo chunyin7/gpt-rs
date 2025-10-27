@@ -8,8 +8,11 @@ pub struct Embedding {
 
 impl Embedding {
     pub fn new(dim: usize, vocab_size: usize) -> Self {
-        Embedding {
-            weights: Matrix::new(vocab_size, dim),
+        let mut weights = Matrix::new(vocab_size, dim);
+        weights.randomize();
+
+        Self {
+            weights,
             dim,
             vocab_size,
         }
@@ -18,12 +21,19 @@ impl Embedding {
     pub fn embed(&self, tokens: &[usize]) -> Result<Matrix, String> {
         let mut ret = Matrix::new(tokens.len(), self.dim);
 
-        for (i, token) in tokens.iter().enumerate() {
-            let row = self.weights.row(*token)?;
-            for (j, val) in row.iter().enumerate() {
-                ret.set(i, j, *val)?;
-            }
-        }
+        tokens
+            .iter()
+            .enumerate()
+            .try_for_each(|(i, token)| -> Result<(), String> {
+                let row = self.weights.row(*token)?;
+                row.iter()
+                    .enumerate()
+                    .try_for_each(|(j, val)| -> Result<(), String> {
+                        ret.set(i, j, *val)?;
+                        Ok(())
+                    })?;
+                Ok(())
+            })?;
 
         Ok(ret)
     }

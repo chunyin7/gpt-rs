@@ -15,8 +15,8 @@ impl DataLoader {
             return Err("DataLoader: batch size is larger than tokens".to_string());
         }
 
-        if (tokens.len() / batch_size) >= sequence_length {
-            return Err("DataLoader: segment length is larger than sequence length".to_string());
+        if (tokens.len() / batch_size) < sequence_length {
+            return Err("DataLoader: segment length is smaller than sequence length".to_string());
         }
 
         Ok(DataLoader {
